@@ -1,0 +1,709 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f5f7f4" />
+    <meta
+      name="description"
+      content="실제 장소를 검색하고 두 지점 사이의 자동차 이동 거리를 확인하세요."
+    />
+    <title>어디까지 — 거리 측정</title>
+    <link rel="preconnect" href="https://nominatim.openstreetmap.org" />
+    <link rel="preconnect" href="https://router.project-osrm.org" />
+    <link rel="preconnect" href="https://tile.openstreetmap.org" />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #1c2924;
+        --muted: #748078;
+        --green: #237a52;
+        --green-dark: #185e3d;
+        --line: #e4e9e4;
+        --paper: #fff;
+        --bg: #f5f7f4;
+        --coral: #e8a185;
+        font-family:
+          "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+        font-synthesis: none;
+        text-rendering: optimizeLegibility;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-width: 320px;
+        min-height: 100vh;
+        margin: 0;
+        color: var(--ink);
+        background:
+          radial-gradient(ellipse at 86% 9%, #e8eee6 0, transparent 31rem),
+          var(--bg);
+      }
+
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      .shell {
+        width: min(1120px, calc(100% - 48px));
+        margin: 0 auto;
+      }
+
+      header {
+        display: flex;
+        height: 82px;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid rgb(28 41 36 / 8%);
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--ink);
+        font-size: 19px;
+        font-weight: 800;
+        letter-spacing: -0.8px;
+        text-decoration: none;
+      }
+
+      .brand-mark {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border-radius: 12px;
+        color: white;
+        background: var(--green);
+      }
+
+      .header-note {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      main {
+        display: grid;
+        min-height: calc(100vh - 82px);
+        grid-template-columns: minmax(0, 1fr) minmax(320px, 0.88fr);
+        align-items: center;
+        gap: clamp(42px, 8vw, 104px);
+        padding: 72px 0 90px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 19px;
+        color: var(--green);
+        font-size: 12px;
+        font-weight: 750;
+        letter-spacing: 1.15px;
+        text-transform: uppercase;
+      }
+
+      .eyebrow::before {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--coral);
+        content: "";
+      }
+
+      h1 {
+        max-width: 580px;
+        margin: 0;
+        font-size: clamp(44px, 6vw, 70px);
+        font-weight: 760;
+        letter-spacing: -4px;
+        line-height: 1.12;
+      }
+
+      h1 span {
+        color: var(--green);
+      }
+
+      .intro {
+        max-width: 450px;
+        margin: 21px 0 30px;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.8;
+        word-break: keep-all;
+      }
+
+      .form-card {
+        padding: 25px;
+        border: 1px solid rgb(28 41 36 / 6%);
+        border-radius: 20px;
+        background: var(--paper);
+        box-shadow: 0 15px 45px rgb(35 57 43 / 7%);
+      }
+
+      .field {
+        position: relative;
+      }
+
+      .field + .field {
+        margin-top: 17px;
+      }
+
+      .field label {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .input-wrap {
+        position: relative;
+      }
+
+      .field input {
+        width: 100%;
+        height: 51px;
+        padding: 0 14px 0 42px;
+        border: 1px solid var(--line);
+        border-radius: 11px;
+        outline: none;
+        color: var(--ink);
+        background: #fff;
+        transition: border-color 150ms ease, box-shadow 150ms ease;
+      }
+
+      .field input::placeholder {
+        color: #a4ada6;
+      }
+
+      .field input:focus {
+        border-color: #6eaa88;
+        box-shadow: 0 0 0 3px rgb(35 122 82 / 10%);
+      }
+
+      .pin {
+        position: absolute;
+        top: 50%;
+        left: 15px;
+        width: 13px;
+        height: 13px;
+        border: 3px solid var(--green);
+        border-radius: 50%;
+        transform: translateY(-50%);
+      }
+
+      .pin.end {
+        border-color: var(--coral);
+      }
+
+      .search-button,
+      .route-button {
+        display: flex;
+        width: 100%;
+        min-height: 51px;
+        align-items: center;
+        justify-content: center;
+        gap: 9px;
+        margin-top: 22px;
+        border: 0;
+        border-radius: 11px;
+        color: #fff;
+        background: var(--green);
+        font-weight: 700;
+        transition: background 150ms ease, transform 150ms ease;
+      }
+
+      .search-button:hover,
+      .route-button:hover {
+        background: var(--green-dark);
+      }
+
+      .search-button:active,
+      .route-button:active {
+        transform: translateY(1px);
+      }
+
+      button:disabled {
+        cursor: wait;
+        opacity: 0.7;
+      }
+
+      .hint {
+        margin: 12px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+
+      .status {
+        margin: 14px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .status.error {
+        color: #b54130;
+      }
+
+      .choices {
+        display: grid;
+        gap: 12px;
+        margin-top: 18px;
+      }
+
+      .choice-group {
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fbfcfb;
+      }
+
+      .choice-group label {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .choice-group select {
+        width: 100%;
+        min-height: 42px;
+        padding: 7px 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        color: var(--ink);
+        background: white;
+      }
+
+      .route-result {
+        margin-top: 18px;
+        padding: 19px;
+        border-radius: 13px;
+        background: #f1f6f1;
+      }
+
+      .result-label {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .distance {
+        margin-top: 4px;
+        font-size: 35px;
+        font-weight: 780;
+        letter-spacing: -1.5px;
+      }
+
+      .map-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 10px;
+        color: var(--green-dark);
+        font-size: 14px;
+        font-weight: 750;
+        text-decoration-thickness: 1px;
+        text-underline-offset: 3px;
+      }
+
+      .visual {
+        position: relative;
+        height: 480px;
+        min-height: 340px;
+        overflow: hidden;
+        border: 1px solid rgb(28 41 36 / 6%);
+        border-radius: 26px;
+        background: #e7eee6;
+        box-shadow: 0 24px 70px rgb(35 57 43 / 8%);
+      }
+
+      #map {
+        width: 100%;
+        height: 100%;
+      }
+
+      .map-card {
+        position: absolute;
+        z-index: 500;
+        top: 14px;
+        right: 14px;
+        padding: 10px 13px;
+        border: 1px solid rgb(28 41 36 / 7%);
+        border-radius: 10px;
+        background: rgb(255 255 255 / 94%);
+        color: #59665d;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+      }
+
+      .map-error {
+        position: absolute;
+        z-index: 600;
+        right: 14px;
+        bottom: 14px;
+        left: 14px;
+        padding: 11px 13px;
+        border-radius: 9px;
+        background: rgb(255 255 255 / 95%);
+        color: #8b3c2d;
+        font-size: 12px;
+      }
+
+      footer {
+        padding: 20px 0 26px;
+        border-top: 1px solid rgb(28 41 36 / 7%);
+        color: #879189;
+        font-size: 11px;
+        line-height: 1.7;
+        text-align: center;
+      }
+
+      footer a {
+        color: #65756a;
+      }
+
+      @media (max-width: 780px) {
+        .shell {
+          width: min(100% - 36px, 520px);
+        }
+
+        header {
+          height: 70px;
+        }
+
+        .header-note {
+          font-size: 11px;
+        }
+
+        main {
+          min-height: auto;
+          grid-template-columns: 1fr;
+          gap: 32px;
+          padding: 52px 0 42px;
+        }
+
+        h1 {
+          letter-spacing: -2.6px;
+        }
+
+        .intro {
+          margin-top: 16px;
+          font-size: 14px;
+        }
+
+        .form-card {
+          padding: 20px;
+        }
+
+        .visual {
+          height: 380px;
+          min-height: 300px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header>
+        <a class="brand" href="#" aria-label="어디까지 홈">
+          <span class="brand-mark" aria-hidden="true">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none">
+              <path d="M5 19 10 5l4 14 5-14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </span>
+          어디까지
+        </a>
+        <span class="header-note">장소 사이의 거리를 간편하게</span>
+      </header>
+
+      <main>
+        <section aria-labelledby="page-title">
+          <div class="eyebrow">OpenStreetMap 기반</div>
+          <h1 id="page-title">두 장소,<br /><span>얼마나 멀까?</span></h1>
+          <p class="intro">
+            출발지와 도착지를 입력해 실제 이동 거리를 확인해 보세요.
+            장소를 검색하고 지도에서 경로를 바로 열 수 있어요.
+          </p>
+
+          <div class="form-card">
+            <form id="search-form">
+              <div class="field">
+                <label for="origin-query">출발지</label>
+                <div class="input-wrap">
+                  <span class="pin" aria-hidden="true"></span>
+                  <input
+                    id="origin-query"
+                    name="origin"
+                    placeholder="예: 서울역"
+                    autocomplete="off"
+                    required
+                  />
+                </div>
+              </div>
+              <div class="field">
+                <label for="destination-query">도착지</label>
+                <div class="input-wrap">
+                  <span class="pin end" aria-hidden="true"></span>
+                  <input
+                    id="destination-query"
+                    name="destination"
+                    placeholder="예: 남산서울타워"
+                    autocomplete="off"
+                    required
+                  />
+                </div>
+              </div>
+              <button class="search-button" id="search-button" type="submit">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <circle cx="10.8" cy="10.8" r="6.8" stroke="currentColor" stroke-width="2" />
+                  <path d="m16 16 4.2 4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                </svg>
+                장소 검색하기
+              </button>
+            </form>
+
+            <p class="hint">
+              장소 이름을 검색한 뒤 목록에서 정확한 지점을 선택해 주세요.
+            </p>
+            <p class="status" id="status" role="status" aria-live="polite"></p>
+            <div class="choices" id="choices" hidden>
+              <div class="choice-group">
+                <label for="origin-choice">출발지 검색 결과</label>
+                <select id="origin-choice"></select>
+              </div>
+              <div class="choice-group">
+                <label for="destination-choice">도착지 검색 결과</label>
+                <select id="destination-choice"></select>
+              </div>
+              <button class="route-button" id="route-button" type="button">
+                거리 확인하기
+              </button>
+            </div>
+            <div class="route-result" id="route-result" hidden>
+              <div class="result-label">자동차 이동 거리</div>
+              <div class="distance" id="distance"></div>
+              <a class="map-link" id="map-link" href="#" target="_blank" rel="noopener noreferrer">
+                지도에서 보기
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M14 4h6v6M20 4l-9 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                  <path d="M18 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                </svg>
+              </a>
+            </div>
+          </div>
+        </section>
+
+        <aside class="visual" aria-label="실제 OpenStreetMap 및 이동 경로">
+          <div id="map" aria-label="이동 경로 지도"></div>
+          <div class="map-card">OPENSTREETMAP 실제 지도</div>
+          <div class="map-error" id="map-error" hidden>
+            지도를 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 새로고침해 주세요.
+          </div>
+        </aside>
+      </main>
+
+      <footer>
+        장소 검색과 지도 타일은 <a href="https://www.openstreetmap.org/" target="_blank" rel="noopener noreferrer">OpenStreetMap</a>
+        Nominatim, 경로 거리는
+        <a href="https://project-osrm.org/" target="_blank" rel="noopener noreferrer">OSRM</a> 공개 서비스를 사용합니다.
+        자동차 경로 기준이며, 서비스 제공 상황에 따라 결과가 달라질 수 있습니다.
+      </footer>
+    </div>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script>
+      const form = document.querySelector("#search-form");
+      const searchButton = document.querySelector("#search-button");
+      const routeButton = document.querySelector("#route-button");
+      const status = document.querySelector("#status");
+      const choices = document.querySelector("#choices");
+      const result = document.querySelector("#route-result");
+      const distance = document.querySelector("#distance");
+      const mapLink = document.querySelector("#map-link");
+      const originSelect = document.querySelector("#origin-choice");
+      const destinationSelect = document.querySelector("#destination-choice");
+      const mapError = document.querySelector("#map-error");
+
+      let lastGeocodeRequest = 0;
+      let routeLayer = null;
+      let map = null;
+
+      if (window.L) {
+        map = L.map("map").setView([36.5, 127.8], 7);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+          maxZoom: 19,
+        }).addTo(map);
+        routeLayer = L.featureGroup().addTo(map);
+        window.setTimeout(() => map.invalidateSize(), 0);
+      } else {
+        mapError.hidden = false;
+      }
+
+      function showStatus(message, isError = false) {
+        status.textContent = message;
+        status.classList.toggle("error", isError);
+      }
+
+      async function geocode(query) {
+        const delay = Math.max(0, 1100 - (Date.now() - lastGeocodeRequest));
+        if (delay) {
+          await new Promise((resolve) => window.setTimeout(resolve, delay));
+        }
+        lastGeocodeRequest = Date.now();
+
+        const params = new URLSearchParams({
+          q: query,
+          format: "jsonv2",
+          limit: "5",
+          addressdetails: "1",
+        });
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/search?${params.toString()}`,
+          { headers: { Accept: "application/json" } },
+        );
+        if (!response.ok) {
+          throw new Error("장소 검색 서비스에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.");
+        }
+        const data = await response.json();
+        return data.map((item) => ({
+          label: item.display_name,
+          lat: Number(item.lat),
+          lon: Number(item.lon),
+        }));
+      }
+
+      function fillOptions(select, places) {
+        select.replaceChildren();
+        for (const [index, place] of places.entries()) {
+          const option = document.createElement("option");
+          option.value = String(index);
+          option.textContent = place.label;
+          select.append(option);
+        }
+        select._places = places;
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const originQuery = form.elements.origin.value.trim();
+        const destinationQuery = form.elements.destination.value.trim();
+        if (!originQuery || !destinationQuery) return;
+
+        searchButton.disabled = true;
+        choices.hidden = true;
+        result.hidden = true;
+        showStatus("두 장소를 차례로 검색하고 있어요. 잠시만 기다려 주세요.");
+        try {
+          const origins = await geocode(originQuery);
+          const destinations = await geocode(destinationQuery);
+          if (!origins.length || !destinations.length) {
+            showStatus("장소를 찾지 못했어요. 더 구체적인 장소 이름이나 주소로 검색해 주세요.", true);
+            return;
+          }
+          fillOptions(originSelect, origins);
+          fillOptions(destinationSelect, destinations);
+          choices.hidden = false;
+          showStatus("검색 결과에서 출발지와 도착지를 확인한 다음 거리를 계산해 주세요.");
+        } catch (error) {
+          showStatus(error.message || "장소 검색 중 오류가 발생했습니다.", true);
+        } finally {
+          searchButton.disabled = false;
+        }
+      });
+
+      routeButton.addEventListener("click", async () => {
+        const origin = originSelect._places?.[Number(originSelect.value)];
+        const destination = destinationSelect._places?.[Number(destinationSelect.value)];
+        if (!origin || !destination) {
+          showStatus("출발지와 도착지를 먼저 선택해 주세요.", true);
+          return;
+        }
+        routeButton.disabled = true;
+        result.hidden = true;
+        showStatus("자동차 경로를 계산하고 있어요.");
+        try {
+          const coordinates = `${origin.lon},${origin.lat};${destination.lon},${destination.lat}`;
+          const response = await fetch(
+            `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson`,
+          );
+          if (!response.ok) {
+            throw new Error("경로 서비스에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.");
+          }
+          const data = await response.json();
+          if (data.code !== "Ok" || !data.routes?.length) {
+            throw new Error("두 장소 사이의 자동차 경로를 찾지 못했어요.");
+          }
+          const meters = data.routes[0].distance;
+          const kilometers = meters / 1000;
+          distance.textContent = `${kilometers < 10 ? kilometers.toFixed(1) : kilometers.toLocaleString("ko-KR", { maximumFractionDigits: 1 })} km`;
+          if (map && routeLayer) {
+            routeLayer.clearLayers();
+            L.geoJSON(data.routes[0].geometry, {
+              style: { color: "#237a52", weight: 6, opacity: 0.9 },
+            }).addTo(routeLayer);
+            L.circleMarker([origin.lat, origin.lon], {
+              radius: 8,
+              color: "#fff",
+              weight: 3,
+              fillColor: "#237a52",
+              fillOpacity: 1,
+            }).addTo(routeLayer);
+            L.circleMarker([destination.lat, destination.lon], {
+              radius: 8,
+              color: "#fff",
+              weight: 3,
+              fillColor: "#e8a185",
+              fillOpacity: 1,
+            }).addTo(routeLayer);
+            map.fitBounds(routeLayer.getBounds(), { padding: [32, 32] });
+          }
+          const mapParams = new URLSearchParams({
+            engine: "fossgis_osrm_car",
+            route: `${origin.lat},${origin.lon};${destination.lat},${destination.lon}`,
+          });
+          mapLink.href = `https://www.openstreetmap.org/directions?${mapParams.toString()}`;
+          result.hidden = false;
+          showStatus(map ? "" : "거리는 계산했지만 지도를 불러오지 못했어요. ‘지도에서 보기’를 눌러 확인해 주세요.", !map);
+        } catch (error) {
+          showStatus(error.message || "거리 계산 중 오류가 발생했습니다.", true);
+        } finally {
+          routeButton.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
