@@ -213,8 +213,7 @@
         border-color: var(--coral);
       }
 
-      .search-button,
-      .route-button {
+      .search-button {
         display: flex;
         width: 100%;
         min-height: 51px;
@@ -230,13 +229,11 @@
         transition: background 150ms ease, transform 150ms ease;
       }
 
-      .search-button:hover,
-      .route-button:hover {
+      .search-button:hover {
         background: var(--green-dark);
       }
 
-      .search-button:active,
-      .route-button:active {
+      .search-button:active {
         transform: translateY(1px);
       }
 
@@ -487,12 +484,12 @@
                   <circle cx="10.8" cy="10.8" r="6.8" stroke="currentColor" stroke-width="2" />
                   <path d="m16 16 4.2 4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
                 </svg>
-                장소 검색하기
+                장소 검색하고 거리 보기
               </button>
             </form>
 
             <p class="hint">
-              장소 이름을 검색한 뒤 목록에서 정확한 지점을 선택해 주세요.
+              검색하면 첫 번째 결과로 거리를 바로 계산합니다. 다른 장소를 선택하면 자동으로 다시 계산됩니다.
             </p>
             <p class="status" id="status" role="status" aria-live="polite"></p>
             <div class="choices" id="choices" hidden>
@@ -504,9 +501,6 @@
                 <label for="destination-choice">도착지 검색 결과</label>
                 <select id="destination-choice"></select>
               </div>
-              <button class="route-button" id="route-button" type="button">
-                거리 확인하기
-              </button>
             </div>
             <div class="route-result" id="route-result" hidden>
               <div class="result-label">자동차 이동 거리</div>
@@ -547,7 +541,6 @@
     <script>
       const form = document.querySelector("#search-form");
       const searchButton = document.querySelector("#search-button");
-      const routeButton = document.querySelector("#route-button");
       const status = document.querySelector("#status");
       const choices = document.querySelector("#choices");
       const result = document.querySelector("#route-result");
@@ -560,6 +553,7 @@
       let lastGeocodeRequest = 0;
       let routeLayer = null;
       let map = null;
+      let routeRequestId = 0;
 
       if (window.L) {
         map = L.map("map").setView([36.5, 127.8], 7);
@@ -617,42 +611,10 @@
         select._places = places;
       }
 
-      form.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const originQuery = form.elements.origin.value.trim();
-        const destinationQuery = form.elements.destination.value.trim();
-        if (!originQuery || !destinationQuery) return;
-
-        searchButton.disabled = true;
-        choices.hidden = true;
-        result.hidden = true;
-        showStatus("두 장소를 차례로 검색하고 있어요. 잠시만 기다려 주세요.");
-        try {
-          const origins = await geocode(originQuery);
-          const destinations = await geocode(destinationQuery);
-          if (!origins.length || !destinations.length) {
-            showStatus("장소를 찾지 못했어요. 더 구체적인 장소 이름이나 주소로 검색해 주세요.", true);
-            return;
-          }
-          fillOptions(originSelect, origins);
-          fillOptions(destinationSelect, destinations);
-          choices.hidden = false;
-          showStatus("검색 결과에서 출발지와 도착지를 확인한 다음 거리를 계산해 주세요.");
-        } catch (error) {
-          showStatus(error.message || "장소 검색 중 오류가 발생했습니다.", true);
-        } finally {
-          searchButton.disabled = false;
-        }
-      });
-
-      routeButton.addEventListener("click", async () => {
-        const origin = originSelect._places?.[Number(originSelect.value)];
-        const destination = destinationSelect._places?.[Number(destinationSelect.value)];
-        if (!origin || !destination) {
-          showStatus("출발지와 도착지를 먼저 선택해 주세요.", true);
-          return;
-        }
-        routeButton.disabled = true;
+      async function calculateRoute(origin, destination) {
+        const requestId = ++routeRequestId;
+        originSelect.disabled = true;
+        destinationSelect.disabled = true;
         result.hidden = true;
         showStatus("자동차 경로를 계산하고 있어요.");
         try {
@@ -667,6 +629,8 @@
           if (data.code !== "Ok" || !data.routes?.length) {
             throw new Error("두 장소 사이의 자동차 경로를 찾지 못했어요.");
           }
+          if (requestId !== routeRequestId) return;
+
           const meters = data.routes[0].distance;
           const kilometers = meters / 1000;
           distance.textContent = `${kilometers < 10 ? kilometers.toFixed(1) : kilometers.toLocaleString("ko-KR", { maximumFractionDigits: 1 })} km`;
@@ -699,9 +663,61 @@
           result.hidden = false;
           showStatus(map ? "" : "거리는 계산했지만 지도를 불러오지 못했어요. ‘지도에서 보기’를 눌러 확인해 주세요.", !map);
         } catch (error) {
-          showStatus(error.message || "거리 계산 중 오류가 발생했습니다.", true);
+          if (requestId === routeRequestId) {
+            showStatus(error.message || "거리 계산 중 오류가 발생했습니다.", true);
+          }
         } finally {
-          routeButton.disabled = false;
+          if (requestId === routeRequestId) {
+            originSelect.disabled = false;
+            destinationSelect.disabled = false;
+          }
+        }
+      }
+
+      async function recalculateSelectedRoute() {
+        const origin = originSelect._places?.[Number(originSelect.value)];
+        const destination = destinationSelect._places?.[Number(destinationSelect.value)];
+        if (!origin || !destination) return;
+
+        searchButton.disabled = true;
+        try {
+          await calculateRoute(origin, destination);
+        } finally {
+          searchButton.disabled = false;
+        }
+      }
+
+      originSelect.addEventListener("change", recalculateSelectedRoute);
+      destinationSelect.addEventListener("change", recalculateSelectedRoute);
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const originQuery = form.elements.origin.value.trim();
+        const destinationQuery = form.elements.destination.value.trim();
+        if (!originQuery || !destinationQuery) return;
+
+        searchButton.disabled = true;
+        choices.hidden = true;
+        result.hidden = true;
+        showStatus("두 장소를 차례로 검색하고 있어요. 잠시만 기다려 주세요.");
+        try {
+          const origins = await geocode(originQuery);
+          const destinations = await geocode(destinationQuery);
+          if (!origins.length || !destinations.length) {
+            showStatus("장소를 찾지 못했어요. 더 구체적인 장소 이름이나 주소로 검색해 주세요.", true);
+            return;
+          }
+          fillOptions(originSelect, origins);
+          fillOptions(destinationSelect, destinations);
+          choices.hidden = false;
+          await calculateRoute(
+            originSelect._places[Number(originSelect.value)],
+            destinationSelect._places[Number(destinationSelect.value)],
+          );
+        } catch (error) {
+          showStatus(error.message || "장소 검색 중 오류가 발생했습니다.", true);
+        } finally {
+          searchButton.disabled = false;
         }
       });
     </script>
